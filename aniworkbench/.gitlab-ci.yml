@@ -1,0 +1,38 @@
+stages:
+  - deploy
+
+deploy:
+  stage: deploy
+  tags:
+    - production
+  only:
+    - tags
+  script:
+    - export VERSION=$CI_COMMIT_TAG
+    - export DEPLOY_PATH=/var/www/laravel-app/$VERSION
+
+    # Clonar el repositorio
+    - git clone --branch $CI_COMMIT_TAG $CI_REPOSITORY_URL $DEPLOY_PATH
+
+    # Copiar .env y base de datos existente
+    - cp /var/www/html/aniworkbench/aniworkbench/.env $DEPLOY_PATH/aniworkbench/.env
+    - cp /var/www/html/aniworkbench/aniworkbench/database/database.sqlite $DEPLOY_PATH/aniworkbench/database/database.sqlite
+
+    # Instalación y optimización
+    - cd $DEPLOY_PATH/aniworkbench
+    - composer install --no-dev --optimize-autoloader
+    - npm install
+    - npm run build
+    - php artisan config:cache
+    - php artisan route:cache
+    - php artisan view:clear
+    - php artisan migrate --force
+
+    # Permisos
+    - sudo chown -R www-data:www-data $DEPLOY_PATH/aniworkbench/storage $DEPLOY_PATH/aniworkbench/bootstrap/cache $DEPLOY_PATH/aniworkbench/database
+    - sudo chmod -R 775 $DEPLOY_PATH/aniworkbench/storage $DEPLOY_PATH/aniworkbench/bootstrap/cache
+    - sudo chmod 664 $DEPLOY_PATH/aniworkbench/database/database.sqlite
+
+    # Actualizar Nginx
+    - sudo sed -i "s|root .*|root $DEPLOY_PATH/aniworkbench/public;|" /var/www/html/aniworkbench/docker/nginx/default.conf
+    - docker restart laravel_nginx
